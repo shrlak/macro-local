@@ -2,8 +2,9 @@ name: Build macOS DMG
 
 on:
   push:
-    tags: ["v*"]      # push a tag like v1.0.1 to publish a new release
-  workflow_dispatch:   # or run it by hand from the Actions tab (uploads the DMG as a build artifact)
+    branches: [main]            # every push to main builds a DMG and publishes it as a new release
+    paths-ignore: ["**.md", ".gitignore"]
+  workflow_dispatch:             # or run it by hand from the Actions tab
 
 permissions:
   contents: write
@@ -52,10 +53,11 @@ jobs:
           path: MacroLocal.dmg
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" MacroLocal.dmg \
-            --title "Macro Local $GITHUB_REF_NAME" \
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" MacroLocal.dmg --target "$GITHUB_SHA" --latest \
+            --title "Macro Local $TAG" \
             --notes "Open the DMG and drag **Macro Local** into **Applications**. The app is not signed with an Apple Developer ID, so the first launch needs a one-time approval: right-click the app → Open (macOS 14 and earlier), or System Settings → Privacy & Security → Open Anyway (macOS 15+). Apple Silicon build."

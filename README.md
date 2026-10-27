@@ -11,7 +11,7 @@ linked together by `[[wiki links]]` and one search. No AI, no cloud account, no 
 
 It opens in its own window (Chrome, Edge, Brave or Chromium if installed — otherwise your default browser) and quits when you close it.
 Your data lives in `~/.macro-local/` (`macro.db` + `recordings/`); copy that folder to back up or move.
-The DMG is built for Apple Silicon by GitHub Actions on every `v*` tag (see `.github/workflows/build-dmg.yml`).
+The DMG is built for Apple Silicon by GitHub Actions on every push to `main` (see `.github/workflows/build-dmg.yml`) and published as a Release.
 
 ## Run from source (any OS with Python 3.9+)
     python3 server.py        # or ./start.sh
@@ -75,9 +75,6 @@ Real-time collaborative editing, user accounts/permissions, Microsoft OAuth (use
 phone-number calling/PSTN, automatic call transcription, email attachments download/HTML rendering, two-way calendar sync.
 
 ## Publishing a release (maintainers)
-The DMG can only be built on macOS, so GitHub Actions builds it. After pushing this repo to GitHub:
-
-    git tag v1.0.0 && git push origin v1.0.0
-
-The *Build macOS DMG* workflow runs the tests, builds `MacroLocal.app`, wraps it in `MacroLocal.dmg`, and attaches it to a GitHub
-Release. (You can also run the workflow by hand from the Actions tab; the DMG is then available as a build artifact.)
+The DMG can only be built on macOS, so GitHub Actions builds it: every push to `main` runs the tests, builds `MacroLocal.app`,
+wraps it in `MacroLocal.dmg`, and attaches it to a new GitHub Release (`v1.0.<run number>`). You can also run the
+*Build macOS DMG* workflow by hand from the Actions tab.
