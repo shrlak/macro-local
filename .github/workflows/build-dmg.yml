@@ -1,0 +1,61 @@
+name: Build macOS DMG
+
+on:
+  push:
+    tags: ["v*"]      # push a tag like v1.0.1 to publish a new release
+  workflow_dispatch:   # or run it by hand from the Actions tab (uploads the DMG as a build artifact)
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+      - name: Make the app icon
+        run: |
+          set -e
+          mkdir MacroLocal.iconset
+          for s in 16 32 128 256 512; do
+            sips -z $s $s static/icon-512.png --out MacroLocal.iconset/icon_${s}x${s}.png
+            sips -z $((s*2)) $((s*2)) static/icon-512.png --out MacroLocal.iconset/icon_${s}x${s}@2x.png
+          done
+          iconutil -c icns MacroLocal.iconset -o MacroLocal.icns
+
+      - name: Build MacroLocal.app
+        run: |
+          python -m pip install pyinstaller
+          python build.py
+
+      - name: Create the installer DMG
+        run: |
+          set -e
+          mkdir dmg-root
+          cp -R dist/MacroLocal.app dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "Macro Local" -srcfolder dmg-root -ov -format UDZO MacroLocal.dmg
+          hdiutil verify MacroLocal.dmg
+          ls -lh MacroLocal.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacroLocal-dmg
+          path: MacroLocal.dmg
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" MacroLocal.dmg \
+            --title "Macro Local $GITHUB_REF_NAME" \
+            --notes "Open the DMG and drag **Macro Local** into **Applications**. The app is not signed with an Apple Developer ID, so the first launch needs a one-time approval: right-click the app → Open (macOS 14 and earlier), or System Settings → Privacy & Security → Open Anyway (macOS 15+). Apple Silicon build."
