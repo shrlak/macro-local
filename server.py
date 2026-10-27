@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 
 import caldav
+import certs
 import google
 import ics
 import mailer
@@ -25,6 +26,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 REC_DIR = DATA_DIR / "recordings"
 REC_DIR.mkdir(exist_ok=True)
 DB_PATH = os.environ.get("MACRO_DB", str(DATA_DIR / "macro.db"))
+certs.install(DATA_DIR)  # HTTPS trust store for the packaged app (before any TLS connection is made)
 HOST = os.environ.get("MACRO_HOST", "127.0.0.1")
 PORT = int(os.environ.get("MACRO_PORT", "8787"))
 TYPES = {"doc", "task", "contact", "company", "deal", "email", "event", "call"}

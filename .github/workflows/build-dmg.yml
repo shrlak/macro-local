@@ -37,7 +37,7 @@ jobs:
 
       - name: Build MacroLocal.app
         run: |
-          python -m pip install pyinstaller
+          python -m pip install pyinstaller certifi
           python build.py
 
       - name: Create the installer DMG
