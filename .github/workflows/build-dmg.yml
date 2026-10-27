@@ -19,6 +19,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Stamp the version
+        run: echo "v1.0.${{ github.run_number }}" > VERSION
+
       - name: Run tests
         run: python -m unittest discover -s tests
 
@@ -27,8 +30,8 @@ jobs:
           set -e
           mkdir MacroLocal.iconset
           for s in 16 32 128 256 512; do
-            sips -z $s $s static/icon-512.png --out MacroLocal.iconset/icon_${s}x${s}.png
-            sips -z $((s*2)) $((s*2)) static/icon-512.png --out MacroLocal.iconset/icon_${s}x${s}@2x.png
+            sips -z $s $s static/icon-1024.png --out MacroLocal.iconset/icon_${s}x${s}.png
+            sips -z $((s*2)) $((s*2)) static/icon-1024.png --out MacroLocal.iconset/icon_${s}x${s}@2x.png
           done
           iconutil -c icns MacroLocal.iconset -o MacroLocal.icns
 

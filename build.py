@@ -12,6 +12,8 @@ here = Path(__file__).resolve().parent
 sep = ";" if sys.platform == "win32" else ":"
 cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed", "--name", "MacroLocal",
        "--osx-bundle-identifier", "com.macrolocal.app", "--add-data", f"{here / 'static'}{sep}static", str(here / "server.py")]
+if (here / "VERSION").exists():  # stamped by CI; read by updater.current_version()
+    cmd[-1:-1] = ["--add-data", f"{here / 'VERSION'}{sep}."]
 if (here / "MacroLocal.icns").exists():
     cmd[-1:-1] = ["--icon", str(here / "MacroLocal.icns")]
 sys.exit(subprocess.call(cmd, cwd=here))

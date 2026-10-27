@@ -15,6 +15,7 @@ import caldav
 import google
 import ics
 import mailer
+import updater
 
 FROZEN = getattr(sys, "frozen", False)
 CODE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -469,6 +470,102 @@ def push_worker():
 oauth_pending = {}
 
 
+# ---------------------------------------------------------------- auto-update
+update_busy = threading.Lock()
+
+
+def update_public():
+    with lock:
+        st, cfg = get_setting("update_state", {}), get_setting("update", {})
+    return {"current": updater.current_version(CODE_DIR), "auto": cfg.get("auto", True), "can_install": updater.can_install(),
+            "packaged": bool(updater.app_bundle()), "latest": st.get("latest", ""), "available": bool(st.get("available")),
+            "ready": bool(st.get("staged") and Path(st["staged"]).is_file()), "page": st.get("page", ""),
+            "notes": st.get("notes", ""), "checked": st.get("checked", 0), "error": st.get("error", "")}
+
+
+def update_check(stage=None):
+    """Look for a newer release; when auto-update is on (or stage=True) and the app can replace itself, pre-download it."""
+    if not update_busy.acquire(blocking=False):
+        return update_public()
+    try:
+        cur = updater.current_version(CODE_DIR)
+        with lock:
+            auto = get_setting("update", {}).get("auto", True)
+        st = {"checked": time.time(), "error": ""}
+        try:
+            info = updater.latest_release()
+            st["latest"] = info["tag"] if info else cur
+            st["available"] = bool(info and updater.is_newer(info["tag"], cur))
+            if info:
+                st["page"], st["notes"] = info["page"], info["notes"]
+            if st["available"] and (stage if stage is not None else auto) and updater.can_install():
+                st["staged"] = str(updater.stage(info, DATA_DIR / "updates"))
+        except Exception as e:
+            st["error"] = f"{type(e).__name__}: {e}"
+        with lock:
+            old = get_setting("update_state", {})
+            if not st.get("available"):
+                old.pop("staged", None)
+            set_setting("update_state", {**old, **{k: v for k, v in st.items() if k != "staged" or st.get("available")}})
+    finally:
+        update_busy.release()
+    return update_public()
+
+
+def staged_update():
+    with lock:
+        p = get_setting("update_state", {}).get("staged")
+    return Path(p) if p and Path(p).is_file() else None
+
+
+def update_install():
+    """Apply the staged update now: the app quits, is replaced, and relaunches."""
+    if not updater.can_install():
+        return {"error": "This copy of Macro Local cannot update itself (run from source, or the app folder is not writable). Download the new version instead."}
+    if not staged_update():
+        update_check(stage=True)
+    dmg = staged_update()
+    if not dmg:
+        return {"error": update_public()["error"] or "No update is available"}
+    updater.apply(dmg, updater.app_bundle(), True, DATA_DIR / "update.log")
+    threading.Timer(0.8, quit_app).start()
+    return {"ok": True}
+
+
+def update_on_exit():
+    """Auto-update: if a verified download is waiting, swap it in as the app quits (no relaunch)."""
+    with lock:
+        auto = get_setting("update", {}).get("auto", True)
+    dmg = staged_update()
+    if auto and dmg and updater.can_install():
+        updater.apply(dmg, updater.app_bundle(), False, DATA_DIR / "update.log")
+
+
+def quit_app():
+    proc = globals().get("_proc")
+    if proc:
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+    srv = globals().get("_srv")
+    if srv:
+        threading.Thread(target=srv.shutdown, daemon=True).start()
+
+
+def update_loop():
+    time.sleep(20)
+    while True:
+        try:
+            with lock:
+                auto = get_setting("update", {}).get("auto", True)
+            if auto:
+                update_check()
+        except Exception:
+            pass
+        time.sleep(6 * 3600)
+
+
 def calendar_window(a, b):
     out = []
     for r in db.execute("SELECT * FROM items WHERE type='event'"):
@@ -518,7 +615,7 @@ def background():
 
 
 MIME = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml",
-        ".png": "image/png", ".webmanifest": "application/manifest+json", ".webm": "audio/webm"}
+        ".png": "image/png", ".woff2": "font/woff2", ".webmanifest": "application/manifest+json", ".webm": "audio/webm"}
 
 
 class H(BaseHTTPRequestHandler):
@@ -552,6 +649,8 @@ class H(BaseHTTPRequestHandler):
         p, q = self.parts()
         if p == ["oauth", "google", "callback"]:
             return self.google_callback(q)
+        if p == ["api", "update"]:
+            return self.send(update_public())
         if p == ["api", "ping"]:  # the page pings this so a browser-mode server can quit after its tab closes
             globals()["last_ping"] = time.time()
             return self.send({"ok": True})
@@ -644,6 +743,15 @@ class H(BaseHTTPRequestHandler):
             return self.send(*self.google_api(p[2], b))
         if p[0] == "api" and p[1] == "caldav":
             return self.send(*self.caldav_api(p[2], b))
+        if p[:2] == ["api", "update"]:
+            if p[2] == "check":
+                return self.send(update_check(stage=None))
+            if p[2] == "install":
+                return self.send(update_install())
+            if p[2] == "config":
+                with lock:
+                    set_setting("update", {**get_setting("update", {}), "auto": bool(b.get("auto"))})
+                return self.send(update_public())
         if p[1] == "rooms":
             with rooms_lock:
                 r = room_state(p[2])
@@ -943,12 +1051,15 @@ def main():
         return
     srv = ThreadingHTTPServer((HOST, PORT), H)
     srv.daemon_threads = True
+    globals()["_srv"] = srv
     if arg("--cert"):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(arg("--cert"), arg("--key"))
         srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     threading.Thread(target=background, daemon=True).start()
     threading.Thread(target=push_worker, daemon=True).start()
+    if "--no-window" not in args:
+        threading.Thread(target=update_loop, daemon=True).start()
     if sys.stdout:
         print(f"Macro Local at {url}  (data: {DATA_DIR})  Ctrl+C to stop")
     if "--no-window" not in args:
@@ -978,6 +1089,10 @@ def main():
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
+        pass
+    try:
+        update_on_exit()
+    except Exception:
         pass
 
 

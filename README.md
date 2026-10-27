@@ -13,6 +13,16 @@ It opens in its own window (Chrome, Edge, Brave or Chromium if installed — oth
 Your data lives in `~/.macro-local/` (`macro.db` + `recordings/`); copy that folder to back up or move.
 The DMG is built for Apple Silicon by GitHub Actions on every push to `main` (see `.github/workflows/build-dmg.yml`) and published as a Release.
 
+## Updates
+The packaged app keeps itself up to date from this repo's GitHub Releases:
+- It checks for a newer release shortly after launch and every 6 hours, downloads it in the background, and verifies it
+  (size + SHA-256). Nothing is installed while you work.
+- A banner offers **Restart & update**; otherwise the update is installed automatically **when you quit**, with a rollback if
+  anything goes wrong. Updates the app installs itself don't trigger the first-launch Gatekeeper prompt again.
+- Settings → Updates shows the version, lets you check manually, and has a switch to turn automatic updates off.
+- Running from source, or from a folder the app can't write to (e.g. straight from the DMG), you just get a download link.
+Releases are stamped with their version (`v1.0.<n>`) by CI; builds from source report `dev` and are never nagged.
+
 ## Run from source (any OS with Python 3.9+)
     python3 server.py        # or ./start.sh
 

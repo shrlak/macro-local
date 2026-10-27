@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#5b5bf0"/><path d="M128 384V128l128 160 128-160v256" fill="none" stroke="#fff" stroke-width="44" stroke-linejoin="round" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FBF9F4"/><stop offset="1" stop-color="#EAE5D8"/></linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1D1C1A" stop-opacity=".06"/><stop offset="1" stop-color="#1D1C1A" stop-opacity=".14"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="114.5" fill="none" stroke="url(#ring)" stroke-width="3"/>
+  <!-- original bold, slanted "M" mark -->
+  <g transform="translate(256 262) skewX(-9) translate(-256 -262)" fill="#1D1C1A">
+    <path d="M118 374V158l64-23 74 62 74-62 64 23v216h-62V214l-76 64-76-64v160z"/>
+  </g>
+</svg>
