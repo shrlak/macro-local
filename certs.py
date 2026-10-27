@@ -10,6 +10,7 @@ import os
 import ssl
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def _export_macos(dest):
     pems = []
     for args in (["security", "find-certificate", "-a", "-p"] + KEYCHAINS, ["security", "find-certificate", "-a", "-p"]):
         try:
-            out = subprocess.run(args, capture_output=True, text=True, timeout=30).stdout
+            out = subprocess.run(args, capture_output=True, text=True, timeout=20).stdout
         except (OSError, subprocess.SubprocessError):
             continue
         if "BEGIN CERTIFICATE" in out:
@@ -39,24 +40,38 @@ def _default_works():
     return any(x and os.path.exists(x) for x in (p.cafile, p.capath, os.environ.get("SSL_CERT_FILE")))
 
 
-def install(data_dir):
-    """Returns the CA file in use, or None when the platform default is fine. Call before any HTTPS request."""
+_thread = None
+
+
+def _refresh(dest):
+    """Export the keychains and switch to the result. Runs in the background: the export can take a while."""
+    if _export_macos(dest):
+        os.environ["SSL_CERT_FILE"] = str(dest)  # every new TLS connection picks this up
+
+
+def install(data_dir, wait=False):
+    """Returns the CA file in use right now, or None when the platform default is fine. Never blocks on the keychain.
+    Call before any HTTPS request. wait=True joins the background refresh (tests)."""
+    global _thread
     if os.environ.get("SSL_CERT_FILE") and os.path.exists(os.environ["SSL_CERT_FILE"]):
         return os.environ["SSL_CERT_FILE"]  # the user chose one
     path = None
     if sys.platform == "darwin":
         dest = Path(data_dir) / "ca-bundle.pem"
-        fresh = dest.exists() and dest.stat().st_size > 1000 and time.time() - dest.stat().st_mtime < 7 * 86400
-        path = dest if fresh else _export_macos(dest)
-        if not path and dest.exists():
-            path = dest  # keychain export failed this time; reuse the last good one
+        have = dest.exists() and dest.stat().st_size > 1000
+        if have:
+            path = dest  # use the last export immediately...
+        if not (have and time.time() - dest.stat().st_mtime < 7 * 86400):
+            _thread = threading.Thread(target=_refresh, args=(dest,), daemon=True)  # ...and (re)build it for next time
+            _thread.start()
     if not path and (getattr(sys, "frozen", False) or not _default_works()):
         try:
             import certifi
-            path = Path(certifi.where())
+            path = Path(certifi.where())  # immediate fallback while the keychain export runs
         except Exception:
             path = None
     if path and Path(path).exists():
         os.environ["SSL_CERT_FILE"] = str(path)
-        return str(path)
-    return None
+    if wait and _thread:
+        _thread.join(60)
+    return os.environ.get("SSL_CERT_FILE") if (path or (wait and _thread)) else None

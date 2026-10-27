@@ -56,7 +56,7 @@ class CertTests(unittest.TestCase):
         code, out = self.run_py(f"""
             import sys, urllib.request, certs
             real = sys.platform; sys.platform = 'darwin'
-            try: print('BUNDLE', certs.install({str(home)!r}))
+            try: print('BUNDLE', certs.install({str(home)!r}, wait=True))
             finally: sys.platform = real
             {self.FETCH % self.url}
             """, PATH=f"{self.d / 'bin'}:{os.environ['PATH']}")
@@ -66,7 +66,7 @@ class CertTests(unittest.TestCase):
         self.assertIn("BEGIN CERTIFICATE", (home / "ca-bundle.pem").read_text())
         # a second launch reuses the fresh bundle instead of shelling out again
         n = len(calls.read_text().split())
-        self.run_py(f"import sys, certs; sys.platform='darwin'; certs.install({str(home)!r})", PATH=f"{self.d / 'bin'}:{os.environ['PATH']}")
+        self.run_py(f"import sys, certs; sys.platform='darwin'; certs.install({str(home)!r}, wait=True)", PATH=f"{self.d / 'bin'}:{os.environ['PATH']}")
         if (home / "ca-bundle.pem").stat().st_size > 1000:
             self.assertEqual(len(calls.read_text().split()), n)
 
@@ -77,15 +77,38 @@ class CertTests(unittest.TestCase):
     def test_failed_export_does_not_crash(self):
         empty = self.d / "empty"; empty.mkdir()
         (empty / "security").write_text("#!/bin/sh\nexit 1\n"); (empty / "security").chmod(0o755)
-        code, out = self.run_py(f"import sys, certs; sys.platform='darwin'; print('r', certs.install({str(self.d / 'home2')!r}))", PATH=f"{empty}:{os.environ['PATH']}")
+        code, out = self.run_py(f"import sys, certs; sys.platform='darwin'; print('r', certs.install({str(self.d / 'home2')!r}, wait=True))", PATH=f"{empty}:{os.environ['PATH']}")
         self.assertEqual(code, 0, out)
+
+    def test_first_launch_never_waits_for_a_slow_keychain(self):
+        try:
+            import certifi  # noqa: F401
+        except ImportError:
+            self.skipTest("certifi not installed")
+        slow = self.d / "slowbin"; slow.mkdir(exist_ok=True)
+        (slow / "security").write_text(f'#!/bin/sh\nsleep 4\ncat "{self.d}/c.pem"\n'); (slow / "security").chmod(0o755)
+        home = self.d / "home3"; home.mkdir(exist_ok=True)
+        code, out = self.run_py(f"""
+            import sys, time, urllib.request, certs
+            real = sys.platform; sys.platform = 'darwin'; sys.frozen = True
+            t = time.time(); first = certs.install({str(home)!r}); took = time.time() - t
+            sys.platform = real
+            print('FIRST', first, 'FAST' if took < 2 else 'SLOW %.1fs' % took)
+            certs._thread.join(30)
+            print('LATER', __import__('os').environ['SSL_CERT_FILE'])
+            {self.FETCH % self.url}
+            """, PATH=f"{slow}:{os.environ['PATH']}")
+        self.assertEqual(code, 0, out)
+        self.assertIn("cacert.pem FAST", out)                      # started at once with the bundled certifi list
+        self.assertIn(f"LATER {home / 'ca-bundle.pem'}", out)      # then switched to the keychain export
+        self.assertTrue(out.endswith("ok"))                         # and the keychain bundle verifies our test server
 
     def test_certifi_fallback_for_frozen_builds(self):
         try:
             import certifi  # noqa: F401
         except ImportError:
             self.skipTest("certifi not installed")
-        code, out = self.run_py("import sys, certs; sys.frozen=True; print(certs.install('/tmp'))")
+        code, out = self.run_py("import sys, certs; sys.platform='linux'; sys.frozen=True; print(certs.install('/tmp'))")
         self.assertEqual(code, 0, out)
         self.assertTrue(out.endswith("cacert.pem"))
 
