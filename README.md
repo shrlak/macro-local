@@ -32,7 +32,8 @@ Flags/env: `--no-window`, `--keep-running`, `--cert/--key`; `MACRO_PORT` (8787),
 Settings → **Google account**. One-time setup (~5 min), because you create your own private Google "app" (no shared secret, nobody else sees your data):
 1. Google Cloud Console → create a project.
 2. Enable the **Gmail API** and **Google Calendar API**.
-3. Google Auth platform → External audience → **Publish app** (in "Testing" mode Google expires the login every 7 days).
+3. Google Auth platform → External audience → under **Audience → Test users**, add your own Gmail address (required, otherwise Google shows
+   *Error 403: access_denied*). Optionally **Publish app** too: in "Testing" mode Google expires the login every 7 days.
 4. Create an OAuth client of type **Desktop app**, paste its Client ID/secret into Macro Local, click **Connect Google**.
    Google warns "hasn't verified this app": Advanced → Go to Macro Local → allow.
 
