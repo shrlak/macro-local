@@ -54,8 +54,16 @@ def fetch_new(cfg, last_uid=0, limit=50, connect=None):
     """Return ([(uid, parsed_message)], newest_uid). Reads INBOX without marking messages read."""
     if connect is None:
         port = int(cfg.get("imap_port") or 993)
-        connect = (lambda: imaplib.IMAP4_SSL(cfg["imap_host"], port, ssl_context=ssl.create_default_context())) \
-            if port != 143 else (lambda: imaplib.IMAP4(cfg["imap_host"], port))
+        sec = cfg.get("imap_security") or ("starttls" if port == 143 else "ssl")
+        ctx = ssl.create_default_context()
+
+        def connect():
+            if sec == "ssl":
+                return imaplib.IMAP4_SSL(cfg["imap_host"], port, ssl_context=ctx, timeout=30)
+            c = imaplib.IMAP4(cfg["imap_host"], port, timeout=30)
+            if sec == "starttls":
+                c.starttls(ssl_context=ctx)
+            return c
     c = connect()
     try:
         c.login(cfg["username"] or cfg["address"], cfg["password"])

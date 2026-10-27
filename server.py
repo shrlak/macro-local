@@ -687,7 +687,7 @@ class H(BaseHTTPRequestHandler):
                     return self.send({"error": "bad name"}, 400)
                 db.execute("INSERT OR IGNORE INTO channels VALUES(?,?,?)", (new_id(), name, time.time()))
                 db.commit()
-                return self.send({"ok": True})
+                return self.send({"ok": True, "id": db.execute("SELECT id FROM channels WHERE name=?", (name,)).fetchone()["id"]})
             if p[1] == "channels" and len(p) == 4:
                 text = (b.get("text") or "").strip()
                 if not text:

@@ -158,9 +158,11 @@ function normalizeData(type,data){
   }
   return data;
 }
+let pendingFlush=null;
 async function openItem(id){
+  if(pendingFlush)pendingFlush();  // send any unsaved edit of the item being left
   const it=await api('GET','/items/'+id);if(it.error)return;
-  state.openId=id;const T=TYPES[it.type],d=$('#detail');d.classList.add('open');
+  state.openId=id;const T=TYPES[it.type],d=$('#detail'),$d=q=>d.querySelector(q);d.classList.add('open');
   const extra=it.type==='event'?`<div class="field"><button id="addcall">+ Add video call link</button></div>`:
     it.type==='call'?`${it.data.recording?`<div class="field"><label>Recording</label><audio controls style="width:100%" src="/recordings/${esc(it.data.recording)}"></audio><a class="lnk" href="/recordings/${esc(it.data.recording)}" download>Download</a></div>`:''}
       <div class="field"><button id="copylink">Copy join link</button> ${it.data.status==='live'?'<button id="rejoin" class="pri">Join</button>':''}</div>`:'';
@@ -170,20 +172,24 @@ async function openItem(id){
     <div class="field"><label>${it.type==='call'?'Notes / transcript':'Notes'} — link anything with [[Title]]</label><textarea id="b" rows="12">${esc(it.body)}</textarea>
     <div class="prev" id="pv"></div></div>
     <div class="field"><label>Linked from (${it.backlinks.length})</label>${it.backlinks.map(b=>`<div><a class="lnk" data-id="${b.id}">${esc(b.title||b.id)}</a> <span class="tag">${b.type}</span></div>`).join('')||'<small style="color:var(--mut)">No backlinks. Reference this item as [['+esc(it.title)+']] elsewhere.</small>'}</div>`;
-  const pv=()=>$('#pv').innerHTML=renderBody($('#b').value,it.links)||'<small style="color:var(--mut)">Preview</small>';pv();
-  let tm;const save=(reopen)=>{clearTimeout(tm);tm=setTimeout(async()=>{const data={};d.querySelectorAll('[data-k]').forEach(e=>data[e.dataset.k]=e.value);
-    await api('PUT','/items/'+id,{title:$('#t').value,body:$('#b').value,data:normalizeData(it.type,data)});
-    if(reopen)return openItem(id);it.links=(await api('GET','/items/'+id)).links;pv();softRefresh()},reopen?0:400)};
-  d.querySelectorAll('input,textarea,select').forEach(e=>{e.oninput=()=>save();e.onchange=()=>save(e.dataset.k==='allday')});
+  const pv=()=>$d('#pv').innerHTML=renderBody($d('#b').value,it.links)||'<small style="color:var(--mut)">Preview</small>';pv();
+  // Snapshot the form when the user edits (never when a timer fires): by then the pane may show a different item.
+  let tm,snap=null;
+  const collect=()=>{const data={};d.querySelectorAll('[data-k]').forEach(e=>data[e.dataset.k]=e.value);return{title:$d('#t').value,body:$d('#b').value,data:normalizeData(it.type,data)}};
+  const flush=async reopen=>{clearTimeout(tm);if(pendingFlush===flush)pendingFlush=null;if(!snap)return;const s=snap;snap=null;
+    await api('PUT','/items/'+id,s);if(state.openId!==id)return softRefresh();
+    if(reopen===true)return openItem(id);it.links=(await api('GET','/items/'+id)).links;pv();softRefresh()};
+  const touch=()=>{snap=collect();pendingFlush=flush;clearTimeout(tm);tm=setTimeout(flush,400)};
+  d.querySelectorAll('input,textarea,select').forEach(e=>{e.oninput=touch;e.onchange=()=>{if(e.dataset.k==='allday'){snap=collect();flush(true)}}});
   d.querySelectorAll('.lnk[data-id]').forEach(a=>a.onclick=()=>openItem(a.dataset.id));
-  $('#x').onclick=()=>{d.classList.remove('open');state.openId=null};
-  $('#del').onclick=async()=>{if(confirm('Delete this item?')){await api('DELETE','/items/'+id);d.classList.remove('open');go(state.view)}};
-  if($('#tocon'))$('#tocon').onclick=async()=>openItem((await api('POST','/items/'+id+'/to-contact')).id);
-  if($('#totask'))$('#totask').onclick=async()=>openItem((await api('POST','/items/'+id+'/to-task')).id);
-  if($('#addcall'))$('#addcall').onclick=async()=>{const c=await api('POST','/items',{type:'call',title:'Call: '+(it.title||'event'),data:{room:rid(),status:'scheduled'}});
-    await api('PUT','/items/'+id,{data:{location:callLink(c.data.room)},body:$('#b').value+`\n\nVideo call: [[${c.id}]]`});openItem(id)};
-  if($('#copylink'))$('#copylink').onclick=()=>{navigator.clipboard?.writeText(callLink(it.data.room));toast('Join link copied')};
-  if($('#rejoin'))$('#rejoin').onclick=()=>joinRoom(it.data.room,id);
+  $d('#x').onclick=()=>{flush();d.classList.remove('open');state.openId=null};
+  $d('#del').onclick=async()=>{if(confirm('Delete this item?')){snap=null;clearTimeout(tm);pendingFlush=null;await api('DELETE','/items/'+id);d.classList.remove('open');go(state.view)}};
+  if($d('#tocon'))$d('#tocon').onclick=async()=>openItem((await api('POST','/items/'+id+'/to-contact')).id);
+  if($d('#totask'))$d('#totask').onclick=async()=>openItem((await api('POST','/items/'+id+'/to-task')).id);
+  if($d('#addcall'))$d('#addcall').onclick=async()=>{const c=await api('POST','/items',{type:'call',title:'Call: '+(it.title||'event'),data:{room:rid(),status:'scheduled'}});
+    await api('PUT','/items/'+id,{data:{location:callLink(c.data.room)},body:$d('#b').value+`\n\nVideo call: [[${c.id}]]`});openItem(id)};
+  if($d('#copylink'))$d('#copylink').onclick=()=>{navigator.clipboard?.writeText(callLink(it.data.room));toast('Join link copied')};
+  if($d('#rejoin'))$d('#rejoin').onclick=()=>joinRoom(it.data.room,id);
 }
 let sr;function softRefresh(){clearTimeout(sr);sr=setTimeout(()=>{if(['docs','tasks','crm','calendar','calls'].includes(state.view)&&!(state.view==='calls'&&call)){const y=$('#view').scrollTop;go(state.view);$('#view').scrollTop=y}},50)}
 
@@ -194,7 +200,7 @@ async function chatView(){
   v.innerHTML=`<div class="chat"><div class="tabs">${chans.map(c=>`<button data-c="${c.id}" class="${c.id===state.channel?'on':''}"># ${esc(c.name)}</button>`).join('')}<button id="nc">+</button></div>
    <div class="msgs" id="msgs"></div><div style="display:flex;gap:6px;margin-top:8px"><input id="mi" placeholder="Message…"><button class="pri" id="ms">Send</button></div></div>`;
   v.querySelectorAll('[data-c]').forEach(b=>b.onclick=()=>{state.channel=b.dataset.c;chatView()});
-  $('#nc').onclick=async()=>{const n=prompt('Channel name');if(n){await api('POST','/channels',{name:n});chatView()}};
+  $('#nc').onclick=async()=>{const n=prompt('Channel name');if(n){const r=await api('POST','/channels',{name:n});if(r.id)state.channel=r.id;chatView()}};
   let since=0;const box=$('#msgs');
   const poll=async()=>{if(state.view!=='chat')return;const ms=await api('GET',`/channels/${state.channel}/messages?since=${since}`);
     if(!ms.length)return;const first=since===0,atEnd=box.scrollHeight-box.scrollTop-box.clientHeight<60;
@@ -355,7 +361,7 @@ function renderCallScreen(){
     call.local.addTrack(t);if(old)call.local.removeTrack(old);t.onended=()=>{if(old){Object.values(call.pcs).forEach(pc=>pc.getSenders().find(x=>x.track===t)?.replaceTrack(old));call.local.addTrack(old)}call.local.removeTrack(t);renderTiles()};renderTiles()}catch(e){}};
   $('#rec').onclick=toggleRec;$('#leave').onclick=leaveCall;
   if(call.itemId){api('GET','/items/'+call.itemId).then(it=>{if($('#cn'))$('#cn').value=it.body;});let tm;
-    $('#cn').oninput=()=>{clearTimeout(tm);tm=setTimeout(()=>api('PUT','/items/'+call.itemId,{body:$('#cn').value}),500)}}
+    $('#cn').oninput=()=>{const v=$('#cn').value,iid=call.itemId;clearTimeout(tm);tm=setTimeout(()=>api('PUT','/items/'+iid,{body:v}),500)}}
   call.tiles={};renderTiles();
   call.clock=setInterval(()=>{const s=Math.floor((Date.now()-call.start)/1000);if($('#ct'))$('#ct').textContent=pad(Math.floor(s/60))+':'+pad(s%60)},1000);
 }
@@ -392,10 +398,10 @@ async function leaveCall(){
 window.addEventListener('beforeunload',()=>{if(call)navigator.sendBeacon(`/api/rooms/${call.room}/leave`,JSON.stringify({id:call.id}))});
 
 /* ---------- settings ---------- */
-const PRESETS={gmail:{imap_host:'imap.gmail.com',imap_port:993,smtp_host:'smtp.gmail.com',smtp_port:465,smtp_security:'ssl'},
-  outlook:{imap_host:'outlook.office365.com',imap_port:993,smtp_host:'smtp.office365.com',smtp_port:587,smtp_security:'starttls'},
-  icloud:{imap_host:'imap.mail.me.com',imap_port:993,smtp_host:'smtp.mail.me.com',smtp_port:587,smtp_security:'starttls'},
-  yahoo:{imap_host:'imap.mail.yahoo.com',imap_port:993,smtp_host:'smtp.mail.yahoo.com',smtp_port:465,smtp_security:'ssl'}};
+const PRESETS={gmail:{imap_host:'imap.gmail.com',imap_port:993,imap_security:'ssl',smtp_host:'smtp.gmail.com',smtp_port:465,smtp_security:'ssl'},
+  outlook:{imap_host:'outlook.office365.com',imap_port:993,imap_security:'ssl',smtp_host:'smtp.office365.com',smtp_port:587,smtp_security:'starttls'},
+  icloud:{imap_host:'imap.mail.me.com',imap_port:993,imap_security:'ssl',smtp_host:'smtp.mail.me.com',smtp_port:587,smtp_security:'starttls'},
+  yahoo:{imap_host:'imap.mail.yahoo.com',imap_port:993,imap_security:'ssl',smtp_host:'smtp.mail.yahoo.com',smtp_port:465,smtp_security:'ssl'}};
 async function settingsView(){
   const st=await api('GET','/settings'),e=st.email||{},feeds=st.feeds||[],v=$('#view');
   const f=(k,l,t='text',ph='')=>`<div class="field"><label>${l}</label><input id="e_${k}" type="${t}" placeholder="${esc(ph)}" value="${esc(e[k]??'')}"></div>`;
@@ -405,7 +411,8 @@ async function settingsView(){
    <div class="tabs">Preset: ${Object.keys(PRESETS).map(p=>`<button data-p="${p}">${p}</button>`).join('')}</div>
    <div style="max-width:560px">${f('name','Your name')}${f('address','Email address','email')}${f('username','Username (blank = address)')}
    <div class="field"><label>Password ${e.has_password?'(saved — leave blank to keep)':''}</label><input id="e_password" type="password"></div>
-   ${f('imap_host','IMAP server')}${f('imap_port','IMAP port','number')}${f('smtp_host','SMTP server')}${f('smtp_port','SMTP port','number')}
+   ${f('imap_host','IMAP server')}${f('imap_port','IMAP port','number')}
+   <div class="field"><label>IMAP security</label><select id="e_imap_security">${['ssl','starttls','none'].map(o=>`<option ${(e.imap_security||'ssl')===o?'selected':''}>${o}</option>`).join('')}</select></div>${f('smtp_host','SMTP server')}${f('smtp_port','SMTP port','number')}
    <div class="field"><label>SMTP security</label><select id="e_smtp_security">${['ssl','starttls','none'].map(o=>`<option ${(e.smtp_security||'starttls')===o?'selected':''}>${o}</option>`).join('')}</select></div>
    <button class="pri" id="esave">Save &amp; sync</button> <span id="emsg"></span>
    ${st.email_state?.synced?`<div><small style="color:var(--mut)">Last synced ${new Date(st.email_state.synced*1000).toLocaleString()} (auto-sync every 5 min while the app runs)</small></div>`:''}</div>
@@ -422,7 +429,7 @@ async function settingsView(){
   $('#tgt_sel').onchange=e=>api('POST','/caldav/target',{target:e.target.value});
   v.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{Object.entries(PRESETS[b.dataset.p]).forEach(([k,x])=>$('#e_'+k).value=x)});
   const collect=()=>[...v.querySelectorAll('#feeds .field')].map(r=>({name:r.querySelector('.fn').value,url:r.querySelector('.fu').value.trim()}));
-  $('#esave').onclick=async()=>{const em={};['name','address','username','password','imap_host','imap_port','smtp_host','smtp_port','smtp_security'].forEach(k=>em[k]=$('#e_'+k).value);
+  $('#esave').onclick=async()=>{const em={};['name','address','username','password','imap_host','imap_port','imap_security','smtp_host','smtp_port','smtp_security'].forEach(k=>em[k]=$('#e_'+k).value);
     await api('POST','/settings',{email:em});$('#emsg').className='';$('#emsg').textContent=' Syncing…';const r=await api('POST','/email/sync',{});
     $('#emsg').className=r.error?'err':'';$('#emsg').textContent=r.error?' '+r.error:` Connected — ${r.new} message(s) fetched`};
   $('#addfeed').onclick=()=>{const d=document.createElement('div');d.className='field';d.style.cssText='display:flex;gap:6px';d.innerHTML='<input class="fn" style="width:140px" placeholder="Name"><input class="fu" placeholder="https://…/basic.ics"><button>✕</button>';d.querySelector('button').onclick=()=>d.remove();$('#feeds').appendChild(d)};

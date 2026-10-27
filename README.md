@@ -66,6 +66,8 @@ so calls between strict NATs can fail.
 Email credentials are stored in plaintext in `macro.db` (file mode 600 on Unix) – use app passwords, and keep the folder private.
 
 ## Develop
+`python3 tests/e2e/serve.py &` then `node tests/e2e/full.test.js` runs a Playwright pass over every feature in a real browser
+(docs/links, tasks, chat, CRM, IMAP/SMTP email, calendar + recurrence + .ics + feeds + reminders, calls + recording, search, PWA, mobile).
 `python3 -m unittest discover -s tests` (ICS parsing/recurrence/patching, IMAP/SMTP, Google OAuth/Gmail/Calendar and CalDAV flows against fakes, API, signaling, recordings).
 
 ## Not included
